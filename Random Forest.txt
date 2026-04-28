@@ -1,0 +1,225 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split, KFold, cross_val_score
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler
+from scipy.stats import pearsonr
+import warnings
+
+warnings.filterwarnings('ignore')
+
+# ==========================================
+# 1. 输入数据
+# ==========================================
+paeoniflorin_smiles = 'C[C@]12C[C@@]3([C@@H]4C[C@]1([C@@]4([C@H](O2)O3)COC(=O)C5=CC=CC=C5)O[C@H]6[C@@H]([C@H]([C@@H]([C@H](O6)CO)O)O)O)O'
+
+target_data = {
+    'PC': 'MTMTLHTKASGMALLHQIQGNELEPLNRPQLKIPLERPLGEVYLDSSKPAVYNYPEGAAYEFNAAAAANAQVYGQTGLPYGPGSEAAAFGSNGLGGFPPLNSVSPSPLMLHPPPQLSPFLQPHGQQVPYYLENEPSGYTVREAGPPAFYRPNSDNRRQGGRERLASTNDKGSMAMESAKETRYCAVCNDYASGYHYGVWSCEGCKAFFKRSIQGHNDYMCPATNQCTIDKNRRKSCQACRLRKCYEVGMMKGGIRKDRRGGRMLKHKRQRDDGEGRGEVGSAGDMRAANLWPSPLMIKRSKKNSLALSLTADQMVSALLDAEPPILYSEYDPTRPFSEASMMGLLTNLADRELVHMINWAKRVPGFVDLTLHDQVHLLECAWLEILMIGLVWRSMEHPGKLLFAPNLLLDRNQGKCVEGMVEIFDMLLATSSRFRMMNLQGEEFVCLKSIILLNSGVYTFLSSTLKSLEEKDHIHRVLDKITDTLIHLMAKAGLTLQQQHQRLAQLLLILSHIRHMSNKGMEHLYSMKCKNVVPLYDLLLEMLDAHRLHAPTSRGGASVEETDQSHLATAGSTSSHSLQKYYITGEAEGFPATV',
+    'CS': 'MALLTAARLLGTKNASCLVLAARHASASSTNLKDILADLIPKEQARIKTFRQQHGKTVVGQITVDMMYGGMRGMKGLVYETSVLDPDEGIRFRGFSIPECQKLLPKAKGGEEPLPEGLFWLLVTGHIPTEEQVSWLSKEWAKRAALPSHVVTMLDNFPTNLHPMSQLSAAVTALNSESNFARAYAQGISRTKYWELIYEDSMDLIAKLPCVAAKIYRNLYREGSGIGAIDSNLDWSHNFTNMLGYTDHQFTELTRLYLTIHSDHEGGNVSAHTSHLVGSALSDPYLSFAAAMNGLAGPLHGLANQEVLVWLTQLQKEVGKDVSDEKLRDYIWNTLNSGRVVPGYGHAVLRKTDPRYTCQREFALKHLPNDPMFKLVAQLYKIVPNVLLEQGKAKNPWPNVDAHSGVLLQYYGMTEMNYYTVLFGVSRALGVLAQLIWSRALGFPLERPKSMSTEGLMKFVDSKSG',
+    'MDH': 'MLSALARPASAALRRSFSTSAQNNAKVAVLGASGGIGQPLSLLLKNSPLVSRLTLYDIAHTPGVAADLSHIETKAAVKGYLGPEQLPDCLKGCDVVVIPAGVPRKPGMTRDDLFNTNATIVATLTAACAQHCPEAMICVIANPVNSTIPITAEVFKKHGVYNPNKIFGVTTLDIVRANTFVAELKGLDPARVNVPVIGGHAGKTIIPLISQCTPKVDFPQDQLTALTGRIQEAGTEVVKAKAGAGSATLSMAYAGARFVFSLVDAMNGKEGVVECSFVKSQETECTYFSTPLLLGKKGIEKNLGIGKVSSFEEKMISDAIPELKASIKKGEDFVKTLK',
+    'AST_GOT': 'MAPPSVFAEVPQAQPVLVFKLTADFREDPDPRKVNLGVGAYRTDDCHPWVLPVVKKVEQKIANDNSLNHEYLPILGLAEFRSCASRLALGDDSPALKEKRVGGVQSLGGTGALRIGADFLARWYNGTNNKNTPVYVSSPTWENHNAVFSAAGFKDIRSYRYWDAEKRGLDLQGFLNDLENAPEFSIVVLHACAHNPTGIDPTPEQWKQIASVMKHRFLFPFFDSAYQGFASGNLERDAWAIRYFVSEGFEFFCAQSFSKNFGLYNERVGNLTVVGKEPESILQVLSQMEKIVRITWSNPPAQGARIVASTLSNPELFEEWTGNVKTMADRILTMRSELRARLEALKTPGTWNHITDQIGMFSFTGLNPKQVEYLVNEKHIYLLPSGRINVSGLTTKNLDYVATSIHEAVTKIQ',
+    'PEPCK_c': 'MPPQLQNGLNLSAKVVQGSLDSLPQAVREFLENNAELCQPDHIHICDGSEEENGRLLGQMEEEGILRRLKKYDNCWLALTDPRDVARIESKTVIVTQEQRDTVPIPKTGLSQLGRWMSEEDFEKAFNARFPGCMKGRTMYVIPFSMGPLGSPLSKIGIELTDSPYVVASMRIMTRMGTPVLEAVGDGEFVKCLHSVGCPLPLQKPLVNNWPCNPELTLIAHLPDRREIISFGSGYGGNSLLGKKCFALRMASRLAKEEGWLAEHMLILGITNPEGEKKYLAAAFPACGKTNLAMMNPSLPGWKVECVGDDIAWMKFDQAGHLRAINPENGFFGVAPGTSVKTNPNAIKTNQKNTIFTNVAETSDGGVYWGIDEPLASGVTITSWKNKEWSSEDGEPCAHPNSRFCTPASQCPIIDAAWESPEGVPIEGIIFGGRRPAGVPLVYEALSWQHGVFVGAAMRSEATAAAEHKGKIIMHDPFAMRPFFGYNFGKYLAHWLSMAQHPAAKLPKIFHVNWFRKDKEGKFLWPGFGENSRVLEWMFNRIDGKASTKLTPIGYIPKEDALNLKGLGHINMMELFSISKEFWEKEVEDIEKYLEDQVNADLPCIEREILALKQRISQM',
+    'PEPCK_m': 'MAALYRPGLRLNWHGLSPLGWPSCRSIQTLRVLSGDLGQLPTGIRDFVEHSARLCQPEGIHICDGTEAENTATLTLLEQQGLIRKLPKYNNCWLARTDPKDVARVESKTVIVTPSQRDTVPLPPGGARGQLGNWMSPADFQRAVDERFPGCMQGRTMYVLPFSMGPVGSPLSRIGVQLTDSAYVVASMRIMTRLGTPVLQALGDGDFVKCLHSVGQPLTGQGEPVSQWPCNPEKTLIGHVPDQREIISFGSGYGGNSLLGKKCFALRIASRLARDEGWLAEHMLILGITSPAGKKRYVAAAFPSACGKTNLAMMRPALPGWKVECVGDDIAWMRFDSEGRLRAINPENGFFGVAPGTSATTNPNAMATIQSNTIFTNVAETSDGGVYWEGIDQPLPPGVTVTSWLGKPWKPGDKEPCAHPNSRFCAPARQCPIMDPAWEAPEGVPIDAIIFGGRRPKGVPLVYEAFNWRHGVFVGSAMRSESTAAAEHKGKIIMHDPFAMRPFFGYNFGHYLEHWLSMEGRKGAQLPRIFHVNWFRRDEAGHFLWPGFGENARVLDWICRRLEGEDSARETPIGLVPKEGALDLSGLRAIDTTQLFSLPKDFWEQEVRDIRSYLTEQVNQDLPKEVLAELEALERRVHKM'
+}
+
+deep_purpose_scores = [7.0275, 6.3026, 6.6199, 6.4057, 7.2704, 7.3657]
+
+
+# ==========================================
+# 2. 特征提取
+# ==========================================
+def get_molecular_fp(smiles, n_bits=2048, radius=2):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError(f"Invalid SMILES: {smiles}")
+    fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
+    return np.array(fp, dtype=np.int32)
+
+
+def get_protein_aac(sequence):
+    amino_acids = 'ACDEFGHIKLMNPQRSTVWY'
+    sequence = ''.join(sequence.split())
+    sequence = ''.join([aa for aa in sequence.upper() if aa in amino_acids])
+    if len(sequence) == 0:
+        return np.zeros(20, dtype=np.float32)
+    aac = np.array([sequence.count(aa) for aa in amino_acids], dtype=np.float32)
+    return aac / len(sequence)
+
+
+def get_protein_dpc(sequence):
+    amino_acids = 'ACDEFGHIKLMNPQRSTVWY'
+    sequence = ''.join(sequence.split())
+    sequence = ''.join([aa for aa in sequence.upper() if aa in amino_acids])
+    if len(sequence) < 2:
+        return np.zeros(400, dtype=np.float32)
+    dpc = np.zeros(400, dtype=np.float32)
+    for i in range(len(sequence) - 1):
+        dpc[amino_acids.index(sequence[i]) * 20 + amino_acids.index(sequence[i + 1])] += 1
+    return dpc / (len(sequence) - 1)
+
+
+def get_protein_physicochemical(sequence):
+    amino_acids = 'ACDEFGHIKLMNPQRSTVWY'
+    sequence = ''.join(sequence.split())
+    sequence = ''.join([aa for aa in sequence.upper() if aa in amino_acids])
+    if len(sequence) == 0:
+        return np.zeros(10, dtype=np.float32)
+
+    hydro = {'A': 1.8, 'C': 2.5, 'D': -3.5, 'E': -3.5, 'F': 2.8, 'G': -0.4, 'H': -3.2, 'I': 4.5, 'K': -3.9, 'L': 3.8,
+             'M': 1.9, 'N': -3.5, 'P': -1.6, 'Q': -3.5, 'R': -4.5, 'S': -0.8, 'T': -0.7, 'V': 4.2, 'W': -0.9, 'Y': -1.3}
+    mw = {'A': 89.1, 'C': 121.2, 'D': 133.1, 'E': 147.1, 'F': 165.2, 'G': 75.1, 'H': 155.2, 'I': 131.2, 'K': 146.2,
+          'L': 131.2, 'M': 149.2, 'N': 132.1, 'P': 115.1, 'Q': 146.2, 'R': 174.2, 'S': 105.1, 'T': 119.1, 'V': 117.1,
+          'W': 204.2, 'Y': 181.2}
+    charge = {'A': 0, 'C': 0, 'D': -1, 'E': -1, 'F': 0, 'G': 0, 'H': 0.5, 'I': 0, 'K': 1, 'L': 0, 'M': 0, 'N': 0,
+              'P': 0, 'Q': 0, 'R': 1, 'S': 0, 'T': 0, 'V': 0, 'W': 0, 'Y': 0}
+
+    seq_list = list(sequence)
+    avg_hydro = np.mean([hydro.get(aa, 0) for aa in seq_list])
+    total_mw = sum([mw.get(aa, 0) for aa in seq_list])
+    net_charge = sum([charge.get(aa, 0) for aa in seq_list])
+
+    return np.array([
+        avg_hydro, total_mw / 1000, net_charge, len(sequence),
+                   sum([1 for aa in seq_list if hydro.get(aa, 0) > 0]) / len(sequence),
+                   sum([1 for aa in seq_list if aa in 'FWY']) / len(sequence),
+                   sum([1 for aa in seq_list if aa in 'DE']) / len(sequence),
+                   sum([1 for aa in seq_list if aa in 'KRH']) / len(sequence),
+                   sum([1 for aa in seq_list if aa in 'STCNQ']) / len(sequence),
+                   sum([1 for aa in seq_list if aa in 'GAVLIPFWM']) / len(sequence)
+    ], dtype=np.float32)
+
+
+# ==========================================
+# 3. 训练数据
+# ==========================================
+np.random.seed(42)
+
+
+def generate_training_data(n_samples=2000):
+    data = []
+    amino_acids = 'ACDEFGHIKLMNPQRSTVWY'
+    for _ in range(n_samples):
+        fp = np.random.binomial(1, 0.1, 2048).astype(np.float32)
+        seq_len = np.random.randint(200, 700)
+        seq = ''.join(np.random.choice(list(amino_acids), seq_len))
+        aac = get_protein_aac(seq)
+        dpc = get_protein_dpc(seq)
+        phys = get_protein_physicochemical(seq)
+        protein_feat = np.concatenate([aac, dpc, phys])
+        combined = np.concatenate([fp, protein_feat])
+        pKd = 5.0 + np.sum(fp) * 0.002 + phys[0] * 0.3 + abs(phys[2]) * 0.1 + np.random.normal(0, 0.5)
+        pKd = np.clip(pKd, 3.0, 10.0)
+        data.append({'features': combined, 'pKd': pKd})
+    return data
+
+
+train_data = generate_training_data(2000)
+X = np.array([d['features'] for d in train_data])
+y = np.array([d['pKd'] for d in train_data])
+
+# ==========================================
+# 4. 训练模型
+# ==========================================
+X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_tr_s = scaler.fit_transform(X_tr)
+X_val_s = scaler.transform(X_val)
+
+rf_model = RandomForestRegressor(
+    n_estimators=300, max_depth=25, min_samples_split=4,
+    min_samples_leaf=2, max_features='sqrt', bootstrap=True,
+    random_state=42, n_jobs=-1
+)
+rf_model.fit(X_tr_s, y_tr)
+
+y_pred_val = rf_model.predict(X_val_s)
+rmse = np.sqrt(mean_squared_error(y_val, y_pred_val))
+r2 = r2_score(y_val, y_pred_val)
+r_pearson, p_val = pearsonr(y_val, y_pred_val)
+
+print(f"验证集 RMSE: {rmse:.4f} | R²: {r2:.4f} | Pearson r: {r_pearson:.4f}")
+
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(rf_model, X_tr_s, y_tr, cv=kf, scoring='r2')
+print(f"5-Fold CV R²: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+
+# ==========================================
+# 5. 预测
+# ==========================================
+compound_fp = get_molecular_fp(paeoniflorin_smiles)
+
+rf_predictions = []
+for name, seq in target_data.items():
+    aac = get_protein_aac(seq)
+    dpc = get_protein_dpc(seq)
+    phys = get_protein_physicochemical(seq)
+    protein_feat = np.concatenate([aac, dpc, phys])
+    combined = np.concatenate([compound_fp, protein_feat]).reshape(1, -1)
+    combined_s = scaler.transform(combined)
+    pred = rf_model.predict(combined_s)[0]
+    rf_predictions.append(pred)
+
+rf_predictions = np.array(rf_predictions)
+r_value, p_value = pearsonr(deep_purpose_scores, rf_predictions)
+
+results_df = pd.DataFrame({
+    'Target': list(target_data.keys()),
+    'DeepPurpose': deep_purpose_scores,
+    'RandomForest': np.round(rf_predictions, 4),
+    'Residual': np.round(rf_predictions - deep_purpose_scores, 4)
+})
+
+print("\n" + "=" * 60)
+print(results_df.to_string(index=False))
+print("-" * 60)
+print(f"Pearson r: {r_value:.4f} | p-value: {p_value:.4e}")
+print("=" * 60)
+
+# ==========================================
+# 6. 可视化
+# ==========================================
+fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+
+ax = axes[0, 0]
+x = np.arange(len(target_data))
+ax.bar(x - 0.2, deep_purpose_scores, 0.4, label='DeepPurpose', color='steelblue')
+ax.bar(x + 0.2, rf_predictions, 0.4, label='Random Forest', color='coral')
+ax.set_xticks(x)
+ax.set_xticklabels(target_data.keys(), rotation=45, ha='right')
+ax.set_ylabel('pKd')
+ax.set_title('Prediction Comparison')
+ax.legend()
+
+ax = axes[0, 1]
+ax.scatter(deep_purpose_scores, rf_predictions, s=100, c='green', alpha=0.6, edgecolors='black')
+for i, name in enumerate(target_data.keys()):
+    ax.annotate(name, (deep_purpose_scores[i], rf_predictions[i]), xytext=(5, 5), textcoords='offset points')
+ax.plot([6, 7.5], [6, 7.5], 'k:', alpha=0.3)
+ax.set_xlabel('DeepPurpose pKd')
+ax.set_ylabel('RF pKd')
+ax.set_title(f'Correlation (r={r_value:.3f})')
+
+ax = axes[1, 0]
+residuals = rf_predictions - np.array(deep_purpose_scores)
+colors = ['red' if abs(r) > 0.5 else 'orange' if abs(r) > 0.2 else 'green' for r in residuals]
+ax.bar(target_data.keys(), residuals, color=colors, alpha=0.7)
+ax.axhline(y=0, color='black', linewidth=0.8)
+ax.set_ylabel('Residual (RF - DeepPurpose)')
+plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+ax = axes[1, 1]
+importances = rf_model.feature_importances_[:2048]
+top_idx = np.argsort(importances)[-20:]
+ax.barh(range(20), importances[top_idx], color='purple', alpha=0.6)
+ax.set_yticks(range(20))
+ax.set_yticklabels([f'FP_{i}' for i in top_idx])
+ax.set_xlabel('Importance')
+
+plt.tight_layout()
+plt.savefig('dti_analysis.png', dpi=150, bbox_inches='tight')
+plt.show()
